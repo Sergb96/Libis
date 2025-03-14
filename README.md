@@ -18,7 +18,7 @@ python final_assembler.py --device_id 0 --subm_name {exp_name} --exp_type {HTS|P
 python final_assembler_chs_bi.py --device_id 0 --subm_name {exp_name}
 python final_assembler_ghts_bi.py --device_id 0 --subm_name {exp_name}
 ```
-Note, you should specify the path of your directory with IBIS templates and test data through "--template_dir {Path}"
+Note, you should specify the path of your directory with IBIS templates and test data through "--template_dir {Path}"</br>
 Files with scores will be saved in "{Path}/{exp_name}"
 
 ## Important remark 1, The assembly of datasets!
