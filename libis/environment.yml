@@ -1,4 +1,4 @@
-name: /home/bushman/miniconda3/envs/lcnn
+name: lcnn
 channels:
   - pytorch
   - nvidia
