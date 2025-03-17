@@ -1,4 +1,3 @@
-
 from libis.general_new import LitLegNet_new
 from libis.utils import Lib_Dataset_A2G
 import lightning as L
