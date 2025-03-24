@@ -100,8 +100,8 @@ for i, (train_idx, val_idx) in enumerate(Kfolder.split(data.seq.values)):
                         tracking_uri='http://localhost:5005' ) 
     checkpoint_callback = ModelCheckpoint(
         save_top_k= 1,
-        monitor="val/AUROC" if val_dataloader is not None else 'train/AUROC',
-        mode="max",
+        monitor="val/loss" if val_dataloader is not None else 'train/AUROC',
+        mode="min",
         dirpath = check_dir,
         filename = run_name,
     )
