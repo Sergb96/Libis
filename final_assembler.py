@@ -11,7 +11,7 @@ import glob
 import argparse
 import os
 
-MODEL_CLASS = LitLegNet_new
+MODEL_CLASS = LitLegNetMax
 parser = argparse.ArgumentParser()
 parser.add_argument('--subm_name', type = str, required= True)
 parser.add_argument('--exp_type', type = str, required= True)
