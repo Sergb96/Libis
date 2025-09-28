@@ -1,4 +1,4 @@
-from libis.general_new import LitLegNet_new
+from libis.LegNetMax import LitLegNetMax
 from libis.utils import Lib_Dataset_A2G
 import lightning as L
 import numpy as np
@@ -11,7 +11,7 @@ from Bio import SeqIO
 import os
 import argparse
 
-MODEL_CLASS = LitLegNet_new
+MODEL_CLASS = LitLegNetMax
 parser = argparse.ArgumentParser()
 parser.add_argument('--subm_name', type = str, required= True)
 parser.add_argument('--device_id', type = int, required= True)
