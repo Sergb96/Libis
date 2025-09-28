@@ -1,4 +1,4 @@
-from libis.general_new import LitLegNet_new
+from libis.LegNetMax import LitLegNetMax
 from libis.utils import Lib_Dataset
 import lightning as L
 import numpy as np
