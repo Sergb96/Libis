@@ -3,7 +3,7 @@ import os
 import sys
 sys.path.append('./ibis-challenge/')
 
-from libis.general_new import LitLegNet_new, get_default_params_G2A
+from libis.LegNetMax import LitLegNetMax, get_default_params_A2G
 from libis.utils import AUROC_callback, Lib_Dataset_G2A, generate_name, read_configs_new
 import lightning as L
 from pytorch_lightning.loggers import MLFlowLogger
@@ -52,7 +52,7 @@ torch.set_float32_matmul_precision('high')
 
 np.random.seed(seed)
 
-MODEL_CLASS = LitLegNet_new
+MODEL_CLASS = LitLegNetMax
 BATCH_SIZE = 64
 path_to_raw = './train/'
 model_name = 'LegNet_new'
