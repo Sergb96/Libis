@@ -51,7 +51,7 @@ np.random.seed(seed)
 BATCH_SIZE = 1024
 MODEL_CLASS = LitLegNetMax
 path_to_raw = './train/'
-model_name = 'LegNet_new'
+model_name = 'LegNetMax'
 log_file = f'{model_name}_{EXP_TYPE}_{tf_name}'
 log_path = f'./mlruns/{log_file}/'
 check_dir = f'./checkpoints/{dicipline}/{tf_name}/{exp_name}/'
@@ -73,8 +73,6 @@ else:
 if not os.path.exists(check_dir) and not TUNE_MODE:
     os.makedirs(check_dir)
 
-# select the biggest replic 
-data = data.loc[data.replic == 0,:]
 data.index = list(range(data.shape[0]))
 
 Kfolder = KFold(n_splits = 5, shuffle=True)
@@ -94,7 +92,7 @@ for i, (train_idx, val_idx) in enumerate(Kfolder.split(data.seq.values)):
 
     
     model = MODEL_CLASS( model_kws, hparams, criterion=nn.MSELoss)
-    run_name = generate_name(check_dir, model_name = 'LegNet_new')
+    run_name = generate_name(check_dir, model_name = model_name)
     logger = MLFlowLogger(save_dir=log_path ,experiment_name = f'{tf_name}_{exp_name}', 
                         run_name= run_name,
                         tracking_uri='http://localhost:5005' ) 

@@ -12,48 +12,52 @@ import os
 import argparse
 
 MODEL_CLASS = LitLegNetMax
+AGG_LENGTHS = [51, 101, 301]
 parser = argparse.ArgumentParser()
 parser.add_argument('--subm_name', type = str, required= True)
 parser.add_argument('--device_id', type = int, required= True)
 parser.add_argument('--template_dir', type = str, default='final_test') # directory with templates, script saves submit files here
 parser.add_argument('--discipline', type = str, required= True) # for checkpoint directory
-parser.add_argument('-regr_mode', action='store_true')
+
 
 args = parser.parse_args()
 exp_type = 'GHTS'
 subm_name = args.subm_name
+subm_name = args.subm_name
 device_id = args.device_id
 template_dir = args.template_dir
-discipline = args.discipline
-regr_mode = args.regr_mode
-AGG_LENGTHS = [51, 101, 301]
 
-if not os.path.exists(f'./{template_dir}/{subm_name}'):
-    os.mkdir(f'./{template_dir}/{subm_name}')
+if not os.path.exists(os.path.join('./',template_dir,subm_name)):
+    os.mkdir(os.path.join('./',template_dir,subm_name))
 
-check_dir = f'./checkpoints/{discipline}/'
-submit_path = f'./{template_dir}/{subm_name}/{exp_type}.tsv'
-meta_table = pd.read_csv(f'./{template_dir}/{subm_name}.csv')
+paths = glob.glob(f'./checkpoints/*/*/{subm_name}/*.ckpt')
+submit_path = os.path.join('./',template_dir,subm_name,f'{subm_name}.tsv')
+
 models_dict = dict()
-for index, row in meta_table.iterrows():
-    tf = row['tf']
-    exp = row['exp']
-    runs = glob.glob(f'{check_dir}{tf}/{exp}/*.ckpt')
-    models_dict[tf] = [MODEL_CLASS.load_from_checkpoint(j) for j in runs]
-# print([(tf, len(models))for tf, models in models_dict.items()])
-# assert all([len(models) == 5 for tf, models in models_dict.items()]) 
+A2G_lst = [path.split('/')[-1] for path in glob.glob('./checkpoints/A2G/*')]
+template = pd.read_csv(os.path.join(template_dir, f'{exp_type}_aaa_template.tsv',sep='\t', index_col=0)
 
-parser = SeqIO.parse(f'./{template_dir}/{exp_type}_participants.fasta', format = 'fasta')
+skipped_tfs = []
+for tf in template.columns.values:
+    runs = list(filter(lambda x: tf in x, paths))
+    if len(runs) == 0:
+        skipped_tfs.append(tf)
+        continue
+    models_dict[tf] = [MODEL_CLASS.load_from_checkpoint(j) for j in runs]
+print(f'The checkpoints for the following TFs are not presented: {skipped_tfs}')
+assert all([len(models) == 5 for tf, models in models_dict.items()]) 
+
+
+parser = SeqIO.parse(os.path.join(template_dir, f'{exp_type}_participants.fasta', format = 'fasta'))
 tags, seqs = [], []
 for record in parser:
     tags.append(record.name)
     seqs.append(str(record.seq))
 test = pd.DataFrame(dict(tags=tags, seq=seqs))
 
-template = pd.read_csv(f'./{template_dir}/{exp_type}_aaa_template.tsv',sep='\t', index_col=0)
+
 test.set_index('tags', inplace=True)
 test = test.loc[template.index.values,:]
-
 lst_dataloaders = []
 for ln in AGG_LENGTHS:
     test_dataset =  Lib_Dataset_A2G(data=test.seq.values, target_len=ln)
@@ -80,10 +84,10 @@ for tf, models in models_dict.items():
     else:
         template[tf] = pre_pred.round(5)
 
-black_lst = template.iloc[0,[True if i=='nodata' else False for i in template.iloc[0,:]]].index.to_list()
-selected_tfs = template.loc[:, [i for i in template.columns if i not in black_lst]]
+
+
 if not os.path.isfile(submit_path):
-    selected_tfs.to_csv(submit_path, sep = '\t')
+    template.to_csv(submit_path, sep = '\t')
 else:
     old_subm = pd.read_csv(submit_path,delimiter='\t', index_col=0)
     new_subm = old_subm.join(selected_tfs)

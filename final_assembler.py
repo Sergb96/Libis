@@ -17,35 +17,32 @@ parser.add_argument('--subm_name', type = str, required= True)
 parser.add_argument('--exp_type', type = str, required= True)
 parser.add_argument('--device_id', type = int, default = 0)
 parser.add_argument('--template_dir', type = str, default='final_test') # directory with templates, script saves submit files here
-parser.add_argument('--discipline', type = str, required= True) # for checkpoint directory
-parser.add_argument('-regr_mode', action='store_true')
+
 args = parser.parse_args()
 exp_type = args.exp_type
 subm_name = args.subm_name
 device_id = args.device_id
 template_dir = args.template_dir
-discipline = args.discipline
-regr_mode = args.regr_mode
 
 if not os.path.exists(f'./{template_dir}/{subm_name}'):
     os.mkdir(f'./{template_dir}/{subm_name}')
 
-check_dir = f'./checkpoints/{discipline}/'
-submit_path = f'./{template_dir}/{subm_name}/{exp_type}.tsv'
+paths = glob.glob(f'./checkpoints/*/*/{subm_name}/*.ckpt')
+submit_path = os.path.join('./',template_dir,subm_name,f'{subm_name}.tsv')
 
-meta_table = pd.read_csv(f'./{template_dir}/{subm_name}.csv')
 models_dict = dict()
-template = pd.read_csv(f'./{template_dir}/{exp_type}_aaa_template.tsv',sep='\t', index_col = 0)
+A2G_lst = [path.split('/')[-1] for path in glob.glob('./checkpoints/A2G/*')]
+template = pd.read_csv(os.path.join(template_dir, f'{exp_type}_aaa_template.tsv',sep='\t', index_col=0)
 
-for index, row in meta_table.iterrows():
-    tf = row['tf']
-    if tf not in template.columns:
+skipped_tfs = []
+for tf in template.columns.values:
+    runs = list(filter(lambda x: tf in x, paths))
+    if len(runs) == 0:
+        skipped_tfs.append(tf)
         continue
-    else:
-        exp = row['exp']
-        runs = glob.glob(f'{check_dir}{tf}/{exp}/*.ckpt')
-        models_dict[tf] = [MODEL_CLASS.load_from_checkpoint(run) for run in runs]
-# assert all([len(models) == 5 for tf, models in models_dict.items()]) 
+    models_dict[tf] = [MODEL_CLASS.load_from_checkpoint(j) for j in runs]
+print(f'The checkpoints for the following TFs are not presented: {skipped_tfs}')
+assert all([len(models) == 5 for tf, models in models_dict.items()]) 
 
 parser = SeqIO.parse(f'./{template_dir}/{exp_type}_participants.fasta', format = 'fasta')
 tags, seqs = [], []

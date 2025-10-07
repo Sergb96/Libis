@@ -55,7 +55,7 @@ np.random.seed(seed)
 MODEL_CLASS = LitLegNetMax
 BATCH_SIZE = 64
 path_to_raw = './train/'
-model_name = 'LegNet_new'
+model_name = 'LegNetMax'
 log_file = f'{model_name}_{dicipline}_{tf_name}'
 log_path = f'./mlruns/{log_file}/'
 check_dir = f'./checkpoints/{dicipline}/{tf_name}/{exp_name}/'
@@ -107,7 +107,7 @@ for i, (train_idx, val_idx) in enumerate(Kfolder.split(data.seq.values, groups=d
 
 
     model = MODEL_CLASS( model_kws, hparams, criterion=nn.BCEWithLogitsLoss, seed= s)
-    run_name = generate_name(check_dir, model_name = 'LegNet_new')
+    run_name = generate_name(check_dir, model_name = model_name)
     logger = MLFlowLogger(save_dir=log_path ,experiment_name = f'{tf_name}_{exp_name}', 
                         run_name= run_name,
                         tracking_uri='http://localhost:5005' ) 
