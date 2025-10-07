@@ -121,7 +121,7 @@ class ConformerSASwiGLULayer(nn.Module):
             nn.Dropout(rate),
         )
         self.layernorm2 = nn.LayerNorm(embedding_dim,eps = 1e-6)    
-        self.attn = ALiBiMultiHeadAttention(d_model=embedding_dim, num_heads=num_heads) #Changed
+        self.attn = ALiBiMultiHeadAttention(d_model=embedding_dim, num_heads=num_heads)
         self.ff2 = FeedForwardSwiGLU(embedding_dim = embedding_dim, mult = ff_mult, rate = rate, use_bias = use_bias)
 
     def forward(self, x):

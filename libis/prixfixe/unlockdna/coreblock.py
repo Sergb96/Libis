@@ -29,7 +29,7 @@ class UnlockDNACoreBlock(CoreBlock):
         self.n_blocks = n_blocks
         self.out_channels = out_channels
         
-    def forward(self, x): #changed, without pos embeddings
+    def forward(self, x):
 
         for i in range(self.n_blocks) :
             x = self.blocks[i](x)

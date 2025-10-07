@@ -302,7 +302,7 @@ def dataset_generation(exp_type:str, tf_name:str, num_workers:int,
             neg_data_alien = G2A_alien_gen(pos_data, tf_name, exp_dir,seed=seed)
         if neg_type == 'alien_mono':
             neg_data_alien = G2A_alien_gen(pos_data, tf_name, exp_dir)
-            neg_data_mono = G2A_mono_gen(pos_data, num_workers=2)
+            neg_data_mono = G2A_mono_gen(pos_data, num_workers=num_workers)
             neg_data = pd.concat([neg_data_alien, neg_data_mono], axis=0)
         dataset = pd.concat([pos_data,neg_data], axis = 0)
         dataset.index = list(range(dataset.shape[0]))

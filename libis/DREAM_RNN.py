@@ -122,9 +122,7 @@ class DREAM_RNN_wrapper(pl.LightningModule):
         seqs, targets = batch
         pred = self.model(seqs)
         loss = self.criterion(pred, targets)
-        with torch.no_grad():
-            score = F.sigmoid(pred)
-        return loss, score
+        return loss, pred
 
     def training_step(self, batch, batch_idx):
         loss, preds = self.compute_loss(batch)
