@@ -1,24 +1,13 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-from torch.utils.data import  Dataset
-
 import pandas as pd
 import numpy as np
 import re
 import glob
 import pmap
-from collections import Counter
 import os
 from Bio import SeqIO
-import sys 
-from sklearn.model_selection import train_test_split
-sys.path.append('../ibis_challenge/bibis')
-
-from ibis_challenge.bibis.sampling.gc import SetGCSampler
-from ibis_challenge.bibis.seq.seqentry import SeqEntry
+from bibis.sampling.gc import SetGCSampler
+from bibis.seq.seqentry import SeqEntry
 from libis.dinucl_shuffle import shuffle_seq_dinucl
-
 
 import numpy as np
 from pmap import pmap
@@ -57,18 +46,25 @@ def A2G_read(path : str) -> pd.DataFrame:
 
 
 
-def A2G_dinucl_gen(pos_data: pd.DataFrame, num_workers: int, num_negatives:int = 1,seed :int = 29) -> pd.DataFrame:
+def A2GShuffleSeq(pos_data: pd.DataFrame, num_workers: int, 
+                  num_negatives:int = 1, shuffle_type='mono') -> pd.DataFrame:
     '''
     Generation of negative controls with help of dinucleotide shuffle
     '''
-    np.random.seed(seed)
     lst_seq = pos_data.seq.values
     lst_replics = np.concatenate([pos_data.replic.values for i in range(num_negatives)]) 
     lst_neg_seq = []
 
-    for i in range(num_negatives):
-        temp_lst = list(pmap(f=lambda x: shuffle_seq_dinucl(x), seq= lst_seq, threads=num_workers))
-        lst_neg_seq.extend(temp_lst)
+    if shuffle_type == 'dinucl':
+        for i in range(num_negatives):
+            temp_lst = list(pmap(f=lambda x: shuffle_seq_dinucl(x), seq= lst_seq, threads=num_workers))
+            lst_neg_seq.extend(temp_lst)
+            
+    elif shuffle_type == 'mono':
+        for i in range(num_negatives):
+            temp_lst = list(pmap(f=lambda x: shuffle_seq_dinucl(x), seq= lst_seq, threads=num_workers))
+            lst_neg_seq.extend(temp_lst)
+
     neg_data = pd.DataFrame({'seq':lst_neg_seq, 'label':np.zeros(len(lst_neg_seq), dtype = 'int'), 
                              'cycle':np.zeros(len(lst_neg_seq), dtype = 'int'), 'replic':lst_replics })
     neg_data['hash'] = [hash(seq) for seq in neg_data.seq]
@@ -76,7 +72,7 @@ def A2G_dinucl_gen(pos_data: pd.DataFrame, num_workers: int, num_negatives:int =
     print('Dinucleotide negatives were generated!')
     return neg_data
 
-def A2G_monoshuffle_gen(pos_data: pd.DataFrame, num_workers: int, num_negatives:int = 1, seed:int = 29) -> pd.DataFrame:
+def MononuclShuffle(pos_data: pd.DataFrame, num_workers: int, num_negatives:int = 1, seed:int = 29) -> pd.DataFrame:
     '''
     Generation of negative controls with help of shuffle
     '''
@@ -95,7 +91,7 @@ def A2G_monoshuffle_gen(pos_data: pd.DataFrame, num_workers: int, num_negatives:
     print('Mononucleotide negatives were generated!')
     return neg_data
 
-def A2G_alien_gen(pos_data:pd.DataFrame, tf_name:str, data_dir:str, 
+def A2GAlienGeneration(pos_data:pd.DataFrame, tf_name:str, data_dir:str, 
                   num_negatives:int = 2, seed:int=29) -> pd.DataFrame:
     lst_paths = list(filter(lambda x: tf_name not in x, glob.glob(f'{data_dir}**/*.fastq', recursive=True)))
     lst_alien_seq = []
@@ -108,10 +104,12 @@ def A2G_alien_gen(pos_data:pd.DataFrame, tf_name:str, data_dir:str,
     lst_replics = []
     lst_hashes = []
     for replic in pos_data.replic.unique():
-        sampler = SetGCSampler.make(negatives=[SeqEntry(seq) for seq in lst_alien_seq], 
+        selected_aliens = [SeqEntry(seq) for seq in lst_alien_seq]
+        sampler = SetGCSampler.make(negatives=selected_aliens, 
                             sample_per_object=num_negatives, 
                             seed=seed)
-        lst_aliens_temp = sampler.sample(positive = [SeqEntry(seq) for seq in pos_data.loc[pos_data.replic == replic,'seq'].values])
+        selected_positives = [SeqEntry(seq) for seq in pos_data.loc[pos_data.replic == replic,'seq'].values]
+        lst_aliens_temp = sampler.sample(positive = selected_positives)
         lst_alien_filtered.extend([seq.sequence for seq in lst_aliens_temp])
         lst_replics.extend([replic] * len(lst_aliens_temp))
         lst_hashes.extend(hash(seq.sequence) for seq in lst_aliens_temp)
@@ -158,30 +156,31 @@ def A2G_random_gen(pos_data:pd.DataFrame, seed:int = 29,
 #GHTS and CHS block
 
 def G2A_read(path:str, genome_path:str = GENOME) -> pd.DataFrame:
+    if genome_path != GENOME:
+        print('Mus musculus!')
     parser = SeqIO.parse(genome_path, format = 'fasta')
     lst_data = []
 
     for pth in glob.glob(path + '*'):
         bed_like = pd.read_csv(pth, sep='\t')
         lst_data.append(bed_like)
-    
     bed_like = pd.concat(lst_data, axis=0)
-    converted = dict(chr = [], seq = [], hash=[])
+    converted = dict(chr = [], seq = [], mid=[], hash=[])
     for id, chr in enumerate(parser):
         name = chr.name
-        seqs = bed_like.loc[bed_like['#CHROM'] == name]
+        seqs = bed_like.loc[bed_like.iloc[:,0] == name] #['#CHROM']
         for seq in seqs.itertuples():
             s, e = int(seq[2]), int(seq[3])
             seq = chr[s:e]
             converted['seq'].append(str(seq.seq).upper())
             converted['chr'].append(name)
             converted['hash'].append(hash(str(seq.seq).upper()))
+            converted['mid'].append((s+e)//2)
     pos_data = pd.DataFrame(converted).drop_duplicates(subset=['hash']).drop('hash',axis=1,)
     pos_data['label'] = 1
     return pos_data
 
-
-def G2A_alien_gen(pos_data:pd.DataFrame, tf_name:str, exp_dir:str, 
+def G2AAlienGeneration(pos_data:pd.DataFrame, tf_name:str, exp_dir:str, 
                   genome_path:str = GENOME, num_negatives:int = 1,seed:int = 29) -> pd.DataFrame:
     lst_tfs = list(filter(lambda x: x!= tf_name, os.listdir(exp_dir)))
     parser = SeqIO.parse(genome_path,format='fasta')
@@ -204,15 +203,19 @@ def G2A_alien_gen(pos_data:pd.DataFrame, tf_name:str, exp_dir:str,
             converted['hash'].append(hash(str(seq.seq).upper()))
     converted = pd.DataFrame(converted).drop_duplicates(subset=['hash']).drop('hash',axis=1)
 
+    available_chroms = pos_data.chr.unique()
     lst_aliens = []
     lst_chr = []
-    for chr_id in pos_data.chr.unique():
+    for chr_id in available_chroms:
         filtered_aliens = converted.loc[converted.chr == chr_id,:]
         filtered_pos = pos_data.loc[pos_data.chr == chr_id,:]
-        sampler = SetGCSampler.make(negatives=[SeqEntry(row[2], metainfo=dict(chr=row[1])) for row in filtered_aliens.itertuples()], 
+        selected_negatives = [SeqEntry(row[2], metainfo=dict(chr=row[1])) for row in filtered_aliens.itertuples()]
+        
+        sampler = SetGCSampler.make(negatives=selected_negatives, 
                             sample_per_object=num_negatives, 
                             seed=seed)
-        lst_aliens_temp = sampler.sample(positive = [SeqEntry(row[2], metainfo=dict(chr=row[1])) for row in filtered_pos.itertuples()])
+        selected_positives = [SeqEntry(row[2], metainfo=dict(chr=row[1])) for row in filtered_pos.itertuples()]
+        lst_aliens_temp = sampler.sample(positive = selected_positives)
         lst_aliens.extend([str(entry.sequence) for entry in lst_aliens_temp])
         lst_chr.extend(len(lst_aliens_temp)*[chr_id])
 
@@ -225,7 +228,8 @@ def G2A_alien_gen(pos_data:pd.DataFrame, tf_name:str, exp_dir:str,
     print('Alien negatives were generated!')
     return neg_data
 
-def G2A_mono_gen(pos_data:pd.DataFrame, seed:int = 29, num_negatives:int = 1, num_workers:int = 1) -> pd.DataFrame:
+def G2AShuffleSeq(pos_data:pd.DataFrame, seed:int = 29, num_negatives:int = 1, num_workers:int = 1,
+                    shuffle_type:str = 'mono') -> pd.DataFrame:
     '''
     Generation of negative controls with help of shuffle
     '''
@@ -236,79 +240,114 @@ def G2A_mono_gen(pos_data:pd.DataFrame, seed:int = 29, num_negatives:int = 1, nu
     lst_neg_seq = []
     lst_chr_unit = pos_data.chr
     lst_chr = []
-
+    shuffle_func = (lambda x: ''.join(np.random.permutation(list(x))) ) if shuffle_type == 'mono' else shuffle_seq_dinucl
 
     for i in range(num_negatives):
-        temp_lst = list(pmap(f=lambda x: ''.join(np.random.permutation(list(x))), seq= lst_seq, threads=num_workers))
+        temp_lst = list(pmap(shuffle_func, seq= lst_seq, threads=num_workers))
         lst_neg_seq.extend(temp_lst)
         lst_chr.extend(lst_chr_unit)
     neg_data = pd.DataFrame({"chr":lst_chr,'seq':lst_neg_seq, 'label':np.zeros(len(lst_neg_seq), dtype = 'int')})
     neg_data['hash'] = [hash(seq) for seq in neg_data.seq]
     neg_data = neg_data.drop_duplicates(subset=['hash'], keep='last').drop(['hash'],axis = 1)
-    print('Mononucleotide negatives were generated!')
-    
-    
+    print('Negatives were generated!')
+    return neg_data
 
 def dataset_generation(exp_type:str, tf_name:str, num_workers:int, 
                        path_to_data:str = './train_board/',
-                       neg_type:str = 'dinucl', seed:int=29) -> pd.DataFrame:
+                       neg_type:str = 'dinucl', seed:int=29, genome_path:str = './genome/hg38.fa') -> pd.DataFrame:
     '''
     Main function, generates a dataset
     '''
     exp_dir = f'{path_to_data}{exp_type}/'
     path = f'{path_to_data}{exp_type}/{tf_name}/'
-    dataset = None
+    neagative_formula = set(neg_type.split('_'))
+
     if exp_type == 'HTS':
         pos_data = A2G_read(path)
-    
-        print('Negative controls are being generated!')
-        if neg_type == 'alien_dinucl':
-            neg_data_dinucle = A2G_dinucl_gen(pos_data, num_workers, num_negatives = 1)
-            neg_data_alien = A2G_alien_gen(pos_data,  tf_name, exp_dir, seed=seed, num_negatives = 1)
-            neg_data = pd.concat([neg_data_dinucle, neg_data_alien])
-        elif neg_type == 'alien_mono':            
-            neg_data_mono = A2G_monoshuffle_gen(pos_data, num_workers, num_negatives = 1)
-            neg_data_alien = A2G_alien_gen(pos_data,  tf_name, exp_dir, seed=seed, num_negatives = 1)
-            neg_data = pd.concat([neg_data_mono, neg_data_alien])
-            
-        elif neg_type == 'alien':
-            neg_data = A2G_alien_gen(pos_data, tf_name, exp_dir, seed=seed)
-        elif neg_type == 'dinucl':
-            neg_data = A2G_dinucl_gen(pos_data, num_workers)
-        elif neg_type == 'mono':
-            neg_data = A2G_monoshuffle_gen(pos_data, num_workers=num_workers, num_negatives=2)
-        elif neg_type == 'random':
-            neg_data = A2G_random_gen(pos_data, seed=seed)
-        else:
-            raise(KeyError('The type of negatives must be one of [\'alien\',\'shuffle\',\'random\', \'alien_dinucl\', \'alien_mono\',\'mono\' ]'))
+        all_data_list = [pos_data]
 
-        dataset = pd.concat([pos_data, neg_data], axis=0)
-        dataset['hash'] = [hash(seq) for seq in dataset.seq.values]
-        dataset.sort_values(by = ['cycle'], inplace=True)
-        dataset = pd.DataFrame(dataset).drop_duplicates(subset=['hash'], keep= 'last').drop('hash',axis=1)
-        replic_sizes = dataset.replic.value_counts()
+        if 'mono' in neagative_formula:
+            all_data_list.append(A2GShuffleSeq(pos_data,num_workers,seed=seed,shuffle_type='mono'))
+        if 'dinucl' in neagative_formula:
+            all_data_list.append(A2GShuffleSeq(pos_data,num_workers,seed=seed, shuffle_type='dinucl'))
+        if 'alien' in neagative_formula:
+            all_data_list.append(A2GAlienGeneration(pos_data,  tf_name, exp_dir, seed=seed))
         
-        if len(replic_sizes) > 1 and replic_sizes[0] < replic_sizes[1]:
-            repl1_idx, repl2_idx = dataset.replic == 0, dataset.replic == 1
-            dataset.loc[repl1_idx,'replic'], dataset.loc[repl2_idx,'replic'] = (1,0)
-        replic_sizes = dataset.replic.value_counts()
-        if len(replic_sizes) > 1:
-            assert replic_sizes[0] > replic_sizes[1]
-        print('Negative controls were generated!')
 
-    elif exp_type in ('GHTS', 'CHS') :
-        pos_data = G2A_read(path)
-        if neg_type == 'alien':
-            neg_data_alien = G2A_alien_gen(pos_data, tf_name, exp_dir,seed=seed)
-        if neg_type == 'alien_mono':
-            neg_data_alien = G2A_alien_gen(pos_data, tf_name, exp_dir)
-            neg_data_mono = G2A_mono_gen(pos_data, num_workers=num_workers)
-            neg_data = pd.concat([neg_data_alien, neg_data_mono], axis=0)
-        dataset = pd.concat([pos_data,neg_data], axis = 0)
-        dataset.index = list(range(dataset.shape[0]))
-    else:
-        print('Requested experiment type isn\'t supported')
-    
-    if dataset is None:
-        print('You may have had an error in your vatiables. Function returns None.')
+    elif exp_type == 'GHTS' or exp_type == 'CHS':
+        
+        if 'mono' in neagative_formula:
+            all_data_list.append(G2AShuffleSeq(pos_data,num_workers,seed=seed,shuffle_type='mono'))
+        if 'dinucl' in neagative_formula:
+            all_data_list.append(G2AShuffleSeq(pos_data,num_workers,seed=seed,shuffle_type='dinucl'))
+        if 'alien' in neagative_formula:
+            all_data_list.append(G2AAlienGeneration(pos_data,  tf_name, exp_dir, seed=seed))
+
+    if len(all_data_list) == 0:
+        raise KeyError('The type of negatives must be one of [\'alien\',\'shuffle\', \'alien_dinucl\', \'alien_mono\',\'mono\' ]')
+
+
+    dataset = pd.concat(all_data_list, axis = 0)
+    dataset.reset_index(inplace=True, drop=True)
+
     return dataset
+
+    #     dataset.index = list(range(dataset.shape[0]))
+    #     print('Negative controls are being generated!')
+    #     if neg_type == 'alien_dinucl':
+    #         neg_data_dinucle = A2G_dinucl_gen(pos_data, num_workers, num_negatives = 1)
+    #         neg_data_alien = A2GAlienGeneration(pos_data,  tf_name, exp_dir, seed=seed, num_negatives = 1)
+    #         neg_data = pd.concat([neg_data_dinucle, neg_data_alien])
+    #     elif neg_type == 'alien_mono':            
+    #         neg_data_mono = A2G_monoshuffle_gen(pos_data, num_workers, num_negatives = 1)
+    #         neg_data_alien = A2GAlienGeneration(pos_data,  tf_name, exp_dir, seed=seed, num_negatives = 1)
+    #         neg_data = pd.concat([neg_data_mono, neg_data_alien])
+            
+    #     elif neg_type == 'alien':
+    #         neg_data = A2GAlienGeneration(pos_data, tf_name, exp_dir, seed=seed)
+    #     elif neg_type == 'dinucl':
+    #         neg_data = A2G_dinucl_gen(pos_data, num_workers)
+    #     elif neg_type == 'mono':
+    #         neg_data = A2G_monoshuffle_gen(pos_data, num_workers=num_workers, num_negatives=2)
+    #     elif neg_type == 'random':
+    #         neg_data = A2G_random_gen(pos_data, seed=seed)
+    #     else:
+    #         raise(KeyError('The type of negatives must be one of [\'alien\',\'shuffle\',\'random\', \'alien_dinucl\', \'alien_mono\',\'mono\' ]'))
+
+    #     dataset = pd.concat([pos_data, neg_data], axis=0)
+    #     dataset['hash'] = [hash(seq) for seq in dataset.seq.values]
+    #     dataset.sort_values(by = ['cycle'], inplace=True)
+    #     dataset = pd.DataFrame(dataset).drop_duplicates(subset=['hash'], keep= 'last').drop('hash',axis=1)
+    #     replic_sizes = dataset.replic.value_counts()
+        
+    #     if len(replic_sizes) > 1 and replic_sizes[0] < replic_sizes[1]:
+    #         repl1_idx, repl2_idx = dataset.replic == 0, dataset.replic == 1
+    #         dataset.loc[repl1_idx,'replic'], dataset.loc[repl2_idx,'replic'] = (1,0)
+    #     replic_sizes = dataset.replic.value_counts()
+    #     if len(replic_sizes) > 1:
+    #         assert replic_sizes[0] > replic_sizes[1]
+    #     print('Negative controls were generated!')
+
+    # elif exp_type in ('GHTS', 'CHS') :
+    #     pos_data = G2A_read(path, genome_path = genome_path)
+    #     if neg_type == 'alien':
+    #         neg_data_alien = G2AAlienGeneration(pos_data, tf_name, exp_dir,seed=seed)
+    #     elif neg_type == 'alien_mono':
+    #         neg_data_alien = G2AAlienGeneration(pos_data, tf_name, exp_dir)
+    #         neg_data_mono = G2AShuffleSeq(pos_data, num_workers=2, shuffle_type='mono')
+    #         neg_data = pd.concat([neg_data_alien, neg_data_mono], axis=0)
+    #     elif neg_type == 'dinucl':
+    #         neg_data = G2AShuffleSeq(pos_data, num_workers=2, shuffle_type='dinucl')
+    #     elif neg_type == 'dinucl_shades':
+    #         neg_data_dinucle = G2AShuffleSeq(pos_data, num_workers=2, shuffle_type='dinucl')
+    #         neg_data_shades = G2A_bad_shades(path, genome_path = genome_path)
+    #         neg_data = pd.concat([neg_data_shades,neg_data_shades],axis=0)
+        
+    #     dataset = pd.concat([pos_data,neg_data], axis = 0)
+    #     dataset.index = list(range(dataset.shape[0]))
+    # else:
+    #     print('Requested experiment type isn\'t supported')
+    
+    # if dataset is None:
+    #     print('You may have had an error in your vatiables. Function returns None.')
+    # return dataset
