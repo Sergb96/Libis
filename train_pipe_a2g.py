@@ -3,11 +3,11 @@ import os
 import sys
 sys.path.append('./ibis-challenge/')
 
-from libis.LegNetMax import LitLegNetMax, get_default_params_A2G
-from libis.utils import AUROC_callback, Lib_Dataset, generate_name, read_configs_new
+from libis.general_max import LitLegNetMax, get_default_params_A2G
+from libis.prep import dataset_generation
+from libis.utils import AUROC_callback, LibDatasetArtificial, generate_name, read_configs_new
 import lightning as L
 from pytorch_lightning.loggers import MLFlowLogger
-import mlflow
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
 import numpy as np
@@ -15,8 +15,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.model_selection import train_test_split, KFold
-import re
+from sklearn.model_selection import  KFold
 from glob import glob
 
 
@@ -50,38 +49,34 @@ np.random.seed(seed)
 
 BATCH_SIZE = 1024
 MODEL_CLASS = LitLegNetMax
-path_to_raw = './train/'
+path_to_raw = 'train/'
 model_name = 'LegNetMax'
 log_file = f'{model_name}_{EXP_TYPE}_{tf_name}'
-log_path = f'./mlruns/{log_file}/'
-check_dir = f'./checkpoints/{dicipline}/{tf_name}/{exp_name}/'
-dataset_path = f'./datasets/{EXP_TYPE}/{neg_type}/{tf_name}.parquet.gzip'
-dataset_dir = f'./datasets/{EXP_TYPE}/{neg_type}/'
-config_path = f'./configs/{EXP_TYPE}/{model_name}/{tf_name}/{config_file}.json'
+log_path = os.path.join('mlruns', log_file)
+check_dir = os.path.join('checkpoints',dicipline, tf_name,exp_name)
+dataset_path = os.path.join('datasets',EXP_TYPE, neg_type,f'{tf_name}.parquet.gzip')
+dataset_dir = os.path.join('datasets',EXP_TYPE, neg_type)
+config_path = os.path.join('configs', dicipline, model_name, tf_name,f'{config_file}.json')
 version_path = glob(f'{log_path}*')
 
+
 if not os.path.exists(dataset_path):
-    from libis.prep import dataset_generation
     data = dataset_generation(EXP_TYPE=EXP_TYPE, tf_name=tf_name ,num_workers=n_workers, 
                             path_to_data= path_to_raw, neg_type = neg_type)
-    os.makedirs(dataset_dir) if not os.path.exists(dataset_dir) else None
+    os.makedirs(dataset_dir, exist_ok=True)
     data.to_parquet(dataset_path, index=False)
 else:
     data = pd.read_parquet(dataset_path)
 
-
-if not os.path.exists(check_dir) and not TUNE_MODE:
-    os.makedirs(check_dir)
-
-data.index = list(range(data.shape[0]))
+os.makedirs(check_dir, exist_ok=True) if not TUNE_MODE else None
 
 Kfolder = KFold(n_splits = 5, shuffle=True)
 for i, (train_idx, val_idx) in enumerate(Kfolder.split(data.seq.values)):
     s = seed + i
     X_train, y_train = data.loc[train_idx,'seq'].values, data.loc[train_idx,'cycle'].values
     X_val, y_val = data.loc[val_idx,'seq'].values, data.loc[val_idx,'cycle'].values
-    train_dataset = Lib_Dataset(data=X_train, target=y_train, rev_compl_aug=True, noisy=False)
-    val_dataset = Lib_Dataset(data=X_val, target=y_val)
+    train_dataset = LibDatasetArtificial(data=X_train, target=y_train, rev_compl_aug=True)
+    val_dataset = LibDatasetArtificial(data=X_val, target=y_val)
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=n_workers,shuffle=True) 
     val_dataloader = DataLoader(val_dataset,batch_size=BATCH_SIZE, num_workers=n_workers,shuffle=True)
     if os.path.isfile(config_path):
@@ -98,8 +93,8 @@ for i, (train_idx, val_idx) in enumerate(Kfolder.split(data.seq.values)):
                         tracking_uri='http://localhost:5005' ) 
     checkpoint_callback = ModelCheckpoint(
         save_top_k= 1,
-        monitor="val/loss" if val_dataloader is not None else 'train/loss',
-        mode="min",
+        monitor="val/AUROC" if val_dataloader is not None else 'train/AUROC',
+        mode="max",
         dirpath = check_dir,
         filename = run_name,
     )

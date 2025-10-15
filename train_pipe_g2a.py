@@ -3,11 +3,11 @@ import os
 import sys
 sys.path.append('./ibis-challenge/')
 
-from libis.LegNetMax import LitLegNetMax, get_default_params_A2G
-from libis.utils import AUROC_callback, Lib_Dataset_G2A, generate_name, read_configs_new
+from libis.general_max import LitLegNetMax, get_default_params_G2A
+from libis.prep import dataset_generation
+from libis.utils import AUROC_callback, LibDatasetExp2Exp, generate_name, read_configs_new
 import lightning as L
 from pytorch_lightning.loggers import MLFlowLogger
-import mlflow
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
 import numpy as np
@@ -15,8 +15,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.model_selection import train_test_split, GroupKFold
-import re
+from sklearn.model_selection import GroupKFold
 from glob import glob
 
 
@@ -25,7 +24,6 @@ parser.add_argument('--neg_type',required=True)
 parser.add_argument('--tf_name',required=True) 
 parser.add_argument('--seed', default=29, type=int)
 parser.add_argument('--n_workers', default=1, type=int)
-parser.add_argument('-use_val', action= 'store_true')
 parser.add_argument('--device_id', type=int, required=True)
 parser.add_argument('--config_file', default= 'not_stated')
 parser.add_argument('--exp_name', required=True)
@@ -41,7 +39,6 @@ neg_type = args.neg_type
 tf_name = args.tf_name
 seed = args.seed
 n_workers = args.n_workers
-use_val = args.use_val
 exp_name = args.exp_name
 TUNE_MODE = args.tune_mode
 config_file = args.config_file
@@ -54,51 +51,48 @@ np.random.seed(seed)
 
 MODEL_CLASS = LitLegNetMax
 BATCH_SIZE = 64
-path_to_raw = './train/'
+path_to_raw = 'train/'
 model_name = 'LegNetMax'
 log_file = f'{model_name}_{dicipline}_{tf_name}'
-log_path = f'./mlruns/{log_file}/'
-check_dir = f'./checkpoints/{dicipline}/{tf_name}/{exp_name}/'
-dataset_path_chs = f'./datasets/{EXP_TYPE_1}/{neg_type}/{tf_name}.parquet.gzip'
-dataset_path_ghts = f'./datasets/{EXP_TYPE_2}/{neg_type}/{tf_name}.parquet.gzip'
-dataset_dir_chs = f'./datasets/{EXP_TYPE_1}/{neg_type}/'
-dataset_dir_ghts = f'./datasets/{EXP_TYPE_2}/{neg_type}/'
-config_path = f'./configs/{dicipline}/{model_name}/{tf_name}/{config_file}.json'
+log_path = os.path.join('mlruns', log_file)
+check_dir = os.path.join('checkpoints',dicipline, tf_name,exp_name)
+dataset_path_chs = os.path.join('datasets',EXP_TYPE_1, neg_type, tf_name, f'{tf_name}.parquet.gzip')
+dataset_path_ghts = os.path.join('datasets',EXP_TYPE_2, neg_type, tf_name, f'{tf_name}.parquet.gzip')
+dataset_dir_chs = os.path.join('datasets',EXP_TYPE_1, neg_type)
+dataset_dir_ghts = os.path.join('datasets',EXP_TYPE_2, neg_type)
+config_path = os.path.join('configs', dicipline, model_name, tf_name,f'{config_file}.json')
 version_path = glob(f'{log_path}*')
 
 if not os.path.exists(dataset_path_ghts):
-    from libis.prep import dataset_generation
     data_ghts = dataset_generation(exp_type=EXP_TYPE_2, tf_name=tf_name ,num_workers=n_workers, 
                             path_to_data= path_to_raw, neg_type = neg_type)
-    os.makedirs(dataset_dir_ghts) if not os.path.exists(dataset_dir_ghts) else None
+    os.makedirs(dataset_dir_ghts, exist_ok=True)
     data_ghts.to_parquet(dataset_path_ghts, index=False)
 else:
     data_ghts = pd.read_parquet(dataset_path_ghts)
 
 if not os.path.exists(dataset_path_chs):
-    from libis.prep import dataset_generation
     data_chs = dataset_generation(exp_type=EXP_TYPE_1, tf_name=tf_name ,num_workers=n_workers, 
                             path_to_data= path_to_raw, neg_type = neg_type)
-    os.makedirs(dataset_dir_chs) if not os.path.exists(dataset_dir_chs) else None
+    os.makedirs(dataset_dir_chs, exist_ok=True)
     data_chs.to_parquet(dataset_path_chs, index=False)
 else:
     data_chs = pd.read_parquet(dataset_path_chs)
 
-if not os.path.exists(check_dir) and not TUNE_MODE:
-    os.makedirs(check_dir)
+os.makedirs(check_dir, exist_ok=True) if not TUNE_MODE else None
 
 data = pd.concat([data_chs, data_ghts], axis = 0)
-data.index = range(data.shape[0])
+data.reset_index(drop=True, inplace=True)
 
 Kfolder = GroupKFold(n_splits = 5)
 for i, (train_idx, val_idx) in enumerate(Kfolder.split(data.seq.values, groups=data.chr.values)):
     s = seed + i
     X_train, y_train = data.loc[train_idx,'seq'].values, data.loc[train_idx,'label'].values
     X_val, y_val = data.loc[val_idx,'seq'].values, data.loc[val_idx,'label'].values
-    train_dataset = Lib_Dataset_G2A(data=X_train, target=y_train,target_len=300 ,rev_compl_aug=True, noisy=False)
-    val_dataset = Lib_Dataset_G2A(data=X_val, target=y_val)
+    train_dataset = LibDatasetExp2Exp(data=X_train, target=y_train,target_len=300 ,rev_compl_aug=True, noisy=False)
+    val_dataset = LibDatasetExp2Exp(data=X_val, target=y_val)
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=n_workers,shuffle=True) 
-    val_dataloader = DataLoader(val_dataset,batch_size=BATCH_SIZE, num_workers=n_workers,shuffle=True) if not use_val else None
+    val_dataloader = DataLoader(val_dataset,batch_size=BATCH_SIZE, num_workers=n_workers,shuffle=True)
     if os.path.isfile(config_path):
         model_kws, hparams = read_configs_new(config_path)
     else:
